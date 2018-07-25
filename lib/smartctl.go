@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	mp "github.com/mackerelio/go-mackerel-plugin"
+	sc "github.com/xruins/mackerel-plugin-smartctl-go/smartctl"
 )
 
 type SmartctlPlugin struct {
@@ -37,6 +38,7 @@ func (s SmartctlPlugin) GraphDefinition() map[string]mp.Graphs {
 }
 
 func (s SmartctlPlugin) FetchMetrics() (map[string]float64, error) {
+	sc.New()
 	sm, err := SmartctlParser.Get()
 	if err != nil {
 		return nil, fmt.Errorf("Failed to fetch metrics: %s", err)

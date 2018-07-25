@@ -32,9 +32,9 @@ func (s SmartctlPlugin) GraphDefinition() map[string]mp.Graphs {
 }
 
 func (s SmartctlPlugin) FetchMetrics() (map[string]float64, error) {
-	ut, err := uptime.Get()
+	sm, err := SmartctlParser.Get()
 	if err != nil {
-		return nil, fmt.Errorf("Failed to fetch  metrics: %s", err)
+		return nil, fmt.Errorf("Failed to fetch metrics: %s", err)
 	}
 	return map[string]float64{"seconds": ut}, nil
 }

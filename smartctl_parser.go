@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	_ "github.com/xruins/mackerel-plugin-smart-go"
 )
 
 type SmartctlParser struct {
@@ -54,15 +52,34 @@ func GetSmartMetrics(devicesMap map[string]string) []*SmartctlMetric {
 		}
 		cmd := fmt.Sprintf(SMARTCTL_CMD, device, dmiTypeOption)
 		result, err := os.Exec(cmd)
-		metrics = append(metrics, parseSmartctl)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to execute smartctl with device %s.", device)
+		}
+		metrics = append(metrics, parseSmartctl(result))
 	}
 }
 
-func parseSmartctl(s string) (*SmartctlMetric, err) {
+func parseSmartctl(device string) (*SmartctlMetric, err) {
 	re := regexpSmartctl.Copy()
 	matches := re.FindAll(s, -1)
-	for matches
+	failedMetricsCount := 0
+	var temperature int
+	for _, submatches := range matches {
+		// if "WHEN_FAILED" shows the value which is not "-", treat as error
+		if submatches[9] != "-" {
+			failedMetricsCount += 1
+		}
+		// if "ATTRIBUTE_NAME" includes "Temperature", treat it as HDD temperature
+		if string.Contains(submatches[2], "Temperature") {
+			temperature = submatches[10]
+		}
+	}
+	return &SmartctlMetric{
+		failedMetricsCount: failedMetricsCount,
+		temperature:        temperature,
+	}
 }
+
 func GetDevicesStatus(devices []string) (bool, err) {
 	cmd := fmt.Sprintf(HDPARM_SPINDOWN_CHECK_CMD, strings.Join(devices, ","))
 	result, err := os.Exec(cmd)

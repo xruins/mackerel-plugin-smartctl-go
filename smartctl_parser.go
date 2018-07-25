@@ -1,65 +1,47 @@
 package mackerel_plugin_smartctl_go
 
 import (
-	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
-	"strings"
+
+	_ "github.com/xruins/mackerel-plugin-smartctl-go"
 )
 
 type SmartctlParser struct {
-	Devices        map[string]string
-	SkipOnSpindown bool
+	Devices   map[string]string
+	PowerMode string
 }
 
 const (
-	SMARTCTL_CMD              = "smartctl -A %s %s"
+	SMARTCTL_CMD              = "smartctl -A %s"
 	HDPARM_SPINDOWN_CHECK_CMD = "hdparm -C {%s}"
 )
 
 var regexpSmartctl = regexp.MustCompile(`\s*(\d+)\s+([A-Za-z_]+)\s+([x0-9]+)\s+(\d+)\s+(\d+)\s+(\d+)\s+([A-Za-z_]+)\s+(\w+)\s+(.+)\s+(\d+)`)
 var regexpHdparm = regexp.MustCompile(`([a-z\/]+):\n\s+drive state is:\s+(.+)`)
 
-func (s *SmartctlParser) Get() {
-	var devicesStatus map[string]string
-
-	// set the statistics of device sleep state.
-	// if it is configured to check SMART even if device sleeps,
-	// filled standy statuses with false.
-	if s.SkipOnSpindown {
-		// fetch whether devices sleeps or not.
-		devices := make([]string, Len(s.Devices))
-		for device, _ := range s.Devices {
-			devices := append(devices, device)
-		}
-		devicesStatus = GetDevicesStatus(s.Devices)
-	} else {
-
-		for device, standby := range devicesStatus {
-			devicesStatus[device] = false
-		}
-	}
-}
-
-func GetSmartMetrics(devicesMap map[string]string) []*SmartctlMetric {
+func (s *SmartctlParser) GetSmartMetrics() []*SmartctlMetric {
 	var metrics = make(*SmartctlMetric, Len(devicesMap))
-	for device, dmiType := range devicesMap {
-		var dmiTypeOption string
+	for device, dmiType := range s.Devices {
+		cmdOptions := ""
 		if dmiType != nil {
-			dmiTypeOption = fmt.Sprintf("-d %s", dmiType)
-		} else {
-			dmiTypeOption = ""
+			cmdOptions = string.Join(cmdOptions, Sprintf("-d %s", dmiType))
 		}
-		cmd := fmt.Sprintf(SMARTCTL_CMD, device, dmiTypeOption)
-		result, err := os.Exec(cmd)
+		if s.PowerMode != nil {
+			// ",3" lets smartctl to return error code 3 if check is skipped
+			cmdOptions = string.Join(cmdOptions, Sprintf("-n %s,3", PowerMode))
+		}
+		output, err := exec.Command(SMARTCTL_CMD, device, cmdOptions).Output()
 		if err != nil {
 			return nil, fmt.Errorf("Failed to execute smartctl with device %s.", device)
 		}
 		metrics = append(metrics, parseSmartctl(result))
 	}
+	return metrics
 }
 
-func parseSmartctl(device string) (*SmartctlMetric, err) {
+func parseSmartctl(device string) (*SmartctlMetric, error) {
 	re := regexpSmartctl.Copy()
 	matches := re.FindAll(s, -1)
 	failedMetricsCount := 0
@@ -78,33 +60,4 @@ func parseSmartctl(device string) (*SmartctlMetric, err) {
 		failedMetricsCount: failedMetricsCount,
 		temperature:        temperature,
 	}
-}
-
-func GetDevicesStatus(devices []string) (bool, err) {
-	cmd := fmt.Sprintf(HDPARM_SPINDOWN_CHECK_CMD, strings.Join(devices, ","))
-	result, err := os.Exec(cmd)
-	if err != nil {
-		return nil, errors.New(err)
-	}
-	re := regexpHdparm.Copy()
-	// output of hdparm is such as`/dev/sda:
-	// drive state is: standby`.
-	// Then the first subsequence will be path to device,
-	// the second one will be status of disk.
-	matches := re.FindAll(result, -1)
-	if matches == nil {
-		return nil, fmt.Errorf("The output of `%s` does not match regexp.", cmd)
-	}
-	var res map[string]bool
-	for _, submatches := range matches {
-		device := submatches[1]
-		if matches[2] == "standby" {
-			standby := true
-		} else {
-			standby := false
-		}
-		res[device] = standby
-	}
-
-	return res, nil
 }
